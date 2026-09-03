@@ -128,7 +128,14 @@ h1{font-family:'Fraunces',serif;font-weight:600;font-size:clamp(26px,4vw,38px);m
 .trend-row-header{display:flex;align-items:center;gap:10px;margin-bottom:12px;}
 .trend-rank{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--muted);width:24px;flex-shrink:0;}
 .trend-city{font-size:14px;font-weight:600;flex:1;}
-.trend-verdict{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 10px;border-radius:20px;white-space:nowrap;}
+.trend-pct{
+  font-family:'Fraunces',serif;
+  font-size:22px;font-weight:600;line-height:1;
+  min-width:80px;text-align:right;flex-shrink:0;
+}
+.trend-pct.neg{color:var(--loss);}
+.trend-pct.pos{color:var(--gain);}
+.trend-verdict{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:4px 10px;border-radius:20px;white-space:nowrap;flex-shrink:0;}
 .trend-verdict.reverteu{background:var(--gain-soft);color:var(--gain);}
 .trend-verdict.continua{background:var(--loss-soft);color:var(--loss);}
 .trend-verdict.sem-dado{background:var(--surface-2);color:var(--muted);}
@@ -218,8 +225,8 @@ footer{margin-top:60px;color:var(--muted);font-size:12px;line-height:1.6;border-
     <p class="subtitle">Comparativo percentual entre meses, por cidade. Janeiro a Agosto/2026. Clique em uma cidade para ver o resultado por representante.</p>
   </header>
 
-  <div class="section-title" style="margin-top:0">Análise de tendência · Top 15 por faturamento</div>
-  <div class="section-sub">Cidades com queda consecutiva nos meses selecionados, entre as 15 maiores em faturamento <strong>nesse período</strong>. Escolha um mês para ver se houve reversão.</div>
+  <div class="section-title" style="margin-top:0">Análise de tendência · Top 50 por faturamento</div>
+  <div class="section-sub">Cidades com queda consecutiva nos meses selecionados, entre as 50 maiores em faturamento <strong>nesse período</strong>. Escolha um mês para ver se houve reversão.</div>
 
   <div class="trend-controls">
     <div class="trend-group">
@@ -331,12 +338,14 @@ function classify(pct, prev, curr){
 function computeData(){
   if(selectedMonths.length < 2) return [];
   return RAW.map(c=>{
-    const prev = c[prevMonth()];
     const curr = c[currMonth()];
+    // average of all selected months as base
+    const vals = selectedMonths.map(m=>c[m]).filter(v=>v!=null);
+    const avg = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
     let pct = null;
-    if(prev!=null && curr!=null && prev!==0) pct = ((curr-prev)/prev)*100;
-    const cls = classify(pct, prev, curr);
-    return {cidade:c.cidade, prev, curr, pct, cls};
+    if(avg!=null && curr!=null && avg!==0) pct = ((curr-avg)/avg)*100;
+    const cls = classify(pct, avg, curr);
+    return {cidade:c.cidade, prev:avg, curr, pct, cls};
   });
 }
 
@@ -369,7 +378,7 @@ function updateCompLabel(){
     label.innerHTML=`Selecionado: <span>${MONTH_LABELS[selectedMonths[0]]}</span> · selecione ao menos mais um mês para comparar`;
   } else {
     const names=selectedMonths.map(m=>`<span>${MONTH_LABELS[m]}</span>`).join(' → ');
-    label.innerHTML=`Comparando: ${names} · variação de <span>${MONTH_LABELS[prevMonth()]}</span> a <span>${MONTH_LABELS[currMonth()]}</span>`;
+    label.innerHTML=`Média de ${names} comparada com <span>${MONTH_LABELS[currMonth()]}</span>`;
   }
 }
 
@@ -430,8 +439,8 @@ function renderHero(data){
   const withPct = data.filter(d=>d.pct!=null);
   const worst = withPct.slice().sort((a,b)=>a.pct-b.pct)[0];
   const best  = withPct.slice().sort((a,b)=>b.pct-a.pct)[0];
-  const rel   = `a ${MONTH_LABELS[prevMonth()]}`;
-  const periodLabel = selectedMonths.map(m=>MONTH_SHORT[m]).join(' → ');
+  const rel   = `à média do período`;
+  const periodLabel = selectedMonths.map(m=>MONTH_SHORT[m]).join('+') + ' vs ' + MONTH_SHORT[currMonth()];
 
   if(worst){
     const cw = RAW.find(c=>c.cidade===worst.cidade);
@@ -530,9 +539,9 @@ function renderShareRanking(){
 }
 
 /* ── Trend Analysis ── */
-let trendMonths  = ['04/2026','05/2026','06/2026','07/2026'];
+let trendMonths  = [];
 let trendCompare = '08/2026';
-let growthMonths  = ['04/2026','05/2026','06/2026','07/2026'];
+let growthMonths  = [];
 let growthCompare = '08/2026';
 
 // Top 15 is calculated dynamically based on trendMonths in renderTrendResults
@@ -548,7 +557,6 @@ function buildTrendPills(){
     pill.addEventListener('click',()=>{
       const m = pill.dataset.month;
       if(trendMonths.includes(m)){
-        if(trendMonths.length<=1) return;
         trendMonths = trendMonths.filter(x=>x!==m);
       } else {
         trendMonths = [...trendMonths, m].sort((a,b)=>MONTHS.indexOf(a)-MONTHS.indexOf(b));
@@ -570,7 +578,6 @@ function buildGrowthPills(){
     pill.addEventListener('click',()=>{
       const m = pill.dataset.month;
       if(growthMonths.includes(m)){
-        if(growthMonths.length<=1) return;
         growthMonths = growthMonths.filter(x=>x!==m);
       } else {
         growthMonths = [...growthMonths, m].sort((a,b)=>MONTHS.indexOf(a)-MONTHS.indexOf(b));
@@ -596,12 +603,12 @@ function renderTrendResults(){
     el.innerHTML=''; return;
   }
 
-  // Top 15 calculated dynamically using the selected trend months
+  // Top 50 calculated dynamically using the selected trend months
   const TOP15 = RAW.map(c=>({
     cidade: c.cidade,
     total: trendMonths.reduce((s,m)=>s+(c[m]||0),0),
     data: c
-  })).filter(c=>c.total>0).sort((a,b)=>b.total-a.total).slice(0,15);
+  })).filter(c=>c.total>0).sort((a,b)=>b.total-a.total).slice(0,50);
 
   // Filter: cities that declined in ALL consecutive pairs of trendMonths
   const declining = TOP15.filter(({data})=>{
@@ -613,10 +620,10 @@ function renderTrendResults(){
     return true;
   });
 
-  hint.textContent = `${declining.length} cidade${declining.length!==1?'s':''} do top 15 em queda consecutiva em ${trendMonths.map(m=>MONTH_SHORT[m]).join(' → ')}.`;
+  hint.textContent = `${declining.length} cidade${declining.length!==1?'s':''} do top 50 em queda consecutiva em ${trendMonths.map(m=>MONTH_SHORT[m]).join(' → ')}.`;
 
   if(!declining.length){
-    el.innerHTML=`<div class="trend-empty">Nenhuma cidade do top 15 em queda consecutiva nesse período.</div>`;
+    el.innerHTML=`<div class="trend-empty">Nenhuma cidade do top 50 em queda consecutiva nesse período.</div>`;
     return;
   }
 
@@ -638,7 +645,7 @@ function renderTrendResults(){
     const vals = allMonths.map(m=>data[m]||0);
     const maxVal = Math.max(...vals, 1);
     const n = allMonths.length;
-    const W=600, H=110, padL=0, padR=0, padT=24, padB=28;
+    const W=600, H=130, padL=0, padR=0, padT=44, padB=28;
     const chartH = H-padT-padB;
     const totalBarW = W*0.88;
     const barW = Math.max(24, Math.min(60,(totalBarW/n)*0.55));
@@ -654,6 +661,9 @@ function renderTrendResults(){
       return compareVal > avgTrend ? '#2FD98B' : '#EF4C4C'; // compare month
     }
 
+    const comparePctVal = (!isCompareInTrend && compareVal!=null && avgTrend)
+      ? (((compareVal-avgTrend)/avgTrend)*100) : null;
+
     let rects='', labels='';
     allMonths.forEach((m,idx)=>{
       const val = vals[idx];
@@ -662,22 +672,18 @@ function renderTrendResults(){
       const y = padT+chartH-h;
       const cx = x+barW/2;
       const color = barColor(m, idx);
-      const vy = Math.max(padT+14, y-5);
       const isCompareBar = !isCompareInTrend && idx===allMonths.length-1;
 
       rects+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${color}" rx="4" opacity="${isCompareBar?1:0.75}"/>`;
 
-      if(isCompareBar){
-        const pctTxt = avgTrend ? (((val-avgTrend)/avgTrend)*100).toFixed(1)+'%' : '—';
-        const pw = Math.max(44, pctTxt.length*7+10);
-        rects+=`<rect x="${(cx-pw/2).toFixed(1)}" y="${(Math.max(padT+14,y-5)-pillH+3).toFixed(1)}" width="${pw}" height="${pillH}" rx="${pillR}" fill="${color}" opacity="0.95"/>`;
-        rects+=`<text x="${cx.toFixed(1)}" y="${(Math.max(padT+14,y-5)+2).toFixed(1)}" text-anchor="middle" font-size="10" fill="#fff" font-family="IBM Plex Mono,monospace" font-weight="700">${pctTxt}</text>`;
+      if(isCompareBar && comparePctVal!=null){
+        const pctTxt = (comparePctVal>=0?'+':'')+comparePctVal.toFixed(1)+'%';
+        const textY = y - 14;
+        rects+=`<text x="${cx.toFixed(1)}" y="${textY.toFixed(1)}" text-anchor="middle" font-size="15" fill="${color}" font-family="IBM Plex Mono,monospace" font-weight="700">${pctTxt}</text>`;
       }
 
-      labels+=`<text x="${cx.toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10" fill="${isCompareBar?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.55)'}" font-family="IBM Plex Mono,monospace" font-weight="${isCompareBar?'700':'400'}">${MONTH_SHORT[m]}${isCompareBar?' ←':''}</text>`;
+      labels+=`<text x="${cx.toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10" fill="${isCompareBar?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.45)'}" font-family="IBM Plex Mono,monospace" font-weight="${isCompareBar?'700':'400'}">${MONTH_SHORT[m]}${isCompareBar?' ←':''}</text>`;
     });
-
-    // Average line across trend months
     const avgY = maxVal>0 ? padT+chartH-(avgTrend/maxVal)*chartH : baselineY;
     const avgLineX1 = startX;
     const avgLineX2 = startX+(trendMonths.length-1)*spacing+barW;
@@ -722,7 +728,7 @@ function renderGrowthResults(){
     cidade: c.cidade,
     total: growthMonths.reduce((s,m)=>s+(c[m]||0),0),
     data: c
-  })).filter(c=>c.total>0).sort((a,b)=>b.total-a.total).slice(0,15);
+  })).filter(c=>c.total>0).sort((a,b)=>b.total-a.total).slice(0,50);
 
   const growing = TOP15g.filter(({data})=>{
     for(let i=1; i<growthMonths.length; i++){
@@ -733,10 +739,10 @@ function renderGrowthResults(){
     return true;
   });
 
-  hint.textContent = `${growing.length} cidade${growing.length!==1?'s':''} do top 15 em crescimento consecutivo em ${growthMonths.map(m=>MONTH_SHORT[m]).join(' → ')}.`;
+  hint.textContent = `${growing.length} cidade${growing.length!==1?'s':''} do top 50 em crescimento consecutivo em ${growthMonths.map(m=>MONTH_SHORT[m]).join(' → ')}.`;
 
   if(!growing.length){
-    el.innerHTML=`<div class="trend-empty">Nenhuma cidade do top 15 em crescimento consecutivo nesse período.</div>`;
+    el.innerHTML=`<div class="trend-empty">Nenhuma cidade do top 50 em crescimento consecutivo nesse período.</div>`;
     return;
   }
 
@@ -755,7 +761,7 @@ function renderGrowthResults(){
     const vals = allMonths.map(m=>data[m]||0);
     const maxVal = Math.max(...vals, 1);
     const n = allMonths.length;
-    const W=600, H=110, padT=24, padB=28, chartH=H-padT-padB;
+    const W=600, H=130, padT=44, padB=28, chartH=H-padT-padB;
     const totalBarW=W*0.88, barW=Math.max(24,Math.min(60,(totalBarW/n)*0.55));
     const spacing=totalBarW/n, startX=(W-totalBarW)/2+spacing*0.2;
     const baselineY=padT+chartH, pillH=16, pillR=5;
@@ -767,23 +773,22 @@ function renderGrowthResults(){
       return compareVal >= avgGrowth ? '#2FD98B' : '#EF4C4C';
     }
 
+    const comparePctG = (!isCompareInGrowth && compareVal!=null && avgGrowth)
+      ? (((compareVal-avgGrowth)/avgGrowth)*100) : null;
+
     let rects='', labels='';
     allMonths.forEach((m,idx)=>{
       const val=vals[idx], h=val?(val/maxVal)*chartH:3;
       const x=startX+idx*spacing, y=padT+chartH-h, cx=x+barW/2;
-      const color=barColorG(idx), vy=Math.max(padT+14,y-5);
+      const color=barColorG(idx);
       const isCompareBar=!isCompareInGrowth&&idx===allMonths.length-1;
-      let pctTxt;
       rects+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW}" height="${h.toFixed(1)}" fill="${color}" rx="4" opacity="${isCompareBar?1:0.75}"/>`;
-
-      if(isCompareBar){
-        const pctTxt = avgGrowth ? (((val-avgGrowth)/avgGrowth)*100).toFixed(1)+'%' : '—';
-        const pw=Math.max(44,pctTxt.length*7+10);
-        rects+=`<rect x="${(cx-pw/2).toFixed(1)}" y="${(Math.max(padT+14,y-5)-pillH+3).toFixed(1)}" width="${pw}" height="${pillH}" rx="${pillR}" fill="${color}" opacity="0.95"/>`;
-        rects+=`<text x="${cx.toFixed(1)}" y="${(Math.max(padT+14,y-5)+2).toFixed(1)}" text-anchor="middle" font-size="10" fill="#fff" font-family="IBM Plex Mono,monospace" font-weight="700">${pctTxt}</text>`;
+      if(isCompareBar && comparePctG!=null){
+        const pctTxt=(comparePctG>=0?'+':'')+comparePctG.toFixed(1)+'%';
+        const textY=y - 14;
+        rects+=`<text x="${cx.toFixed(1)}" y="${textY.toFixed(1)}" text-anchor="middle" font-size="15" fill="${color}" font-family="IBM Plex Mono,monospace" font-weight="700">${pctTxt}</text>`;
       }
-
-      labels+=`<text x="${cx.toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10" fill="${isCompareBar?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.55)'}" font-family="IBM Plex Mono,monospace" font-weight="${isCompareBar?'700':'400'}">${MONTH_SHORT[m]}${isCompareBar?' ←':''}</text>`;
+      labels+=`<text x="${cx.toFixed(1)}" y="${H-8}" text-anchor="middle" font-size="10" fill="${isCompareBar?'rgba(255,255,255,0.95)':'rgba(255,255,255,0.45)'}" font-family="IBM Plex Mono,monospace" font-weight="${isCompareBar?'700':'400'}">${MONTH_SHORT[m]}${isCompareBar?' ←':''}</text>`;
     });
     const avgY = maxVal>0 ? padT+chartH-(avgGrowth/maxVal)*chartH : baselineY;
     const avgLineX1 = startX, avgLineX2 = startX+(growthMonths.length-1)*spacing+barW;
